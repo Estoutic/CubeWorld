@@ -62,3 +62,43 @@ namespace CubeWorld.World
                     Blocks[x, y, z] = (byte)BlockType.Air;
             }
         }
+
+        /// <summary>
+        /// Перестраивает меш. neighborGetter — для бесшовных стыков.
+        /// </summary>
+        public void BuildMesh(ChunkMeshBuilder.BlockGetter neighborGetter = null)
+        {
+            Mesh mesh = ChunkMeshBuilder.BuildMesh(Blocks, SIZE, neighborGetter);
+            _meshFilter.mesh = mesh;
+            _meshCollider.sharedMesh = mesh;
+        }
+
+        public void SetBlock(int x, int y, int z, BlockType type)
+        {
+            if (x < 0 || x >= SIZE || y < 0 || y >= SIZE || z < 0 || z >= SIZE) return;
+            Blocks[x, y, z] = (byte)type;
+        }
+
+        public BlockType GetBlock(int x, int y, int z)
+        {
+            if (x < 0 || x >= SIZE || y < 0 || y >= SIZE || z < 0 || z >= SIZE)
+                return BlockType.Air;
+            return (BlockType)Blocks[x, y, z];
+        }
+
+        public void SetMaterial(Material material)
+        {
+            _meshRenderer.material = material;
+        }
+
+        /// <summary>Очищает данные чанка для переиспользования (object pool).</summary>
+        public void Clear()
+        {
+            if (Blocks != null)
+                System.Array.Clear(Blocks, 0, Blocks.Length);
+            if (_meshFilter.mesh != null)
+                _meshFilter.mesh.Clear();
+            _meshCollider.sharedMesh = null;
+        }
+    }
+}

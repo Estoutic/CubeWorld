@@ -3,96 +3,54 @@ using UnityEngine;
 namespace CubeWorld.World
 {
     /// <summary>
-    /// Точка входа для тестирования чанка.
-    /// Добавь этот скрипт на пустой GameObject в сцене.
-    /// Он создаст чанк, заполнит тестовыми данными и отобразит.
+    /// Точка входа: настраивает мир, камеру и ChunkManager.
+    /// Добавь на пустой GameObject в сцене.
     /// </summary>
     public class ChunkTest : MonoBehaviour
     {
-        [Header("Atlas Settings")]
-        [Tooltip("Если не задан — создаст процедурный атлас")]
-        public Material chunkMaterial;
-
-        private Chunk _chunk;
+        [Header("Settings")]
+        public int renderDistance = 8;
 
         private void Start()
         {
-            // Создаём материал с процедурным атласом если не задан
-            if (chunkMaterial == null)
-            {
-                chunkMaterial = CreateProceduralAtlasMaterial();
-            }
+            // Создаём процедурный материал
+            Material mat = CreateProceduralAtlasMaterial();
 
-            // Создаём GameObject для чанка
-            CreateTestChunk();
-
-            // Настраиваем камеру чтобы видеть чанк
-            SetupCamera();
-        }
-
-        private void SetupCamera()
-        {
+            // Настраиваем камеру
             Camera cam = Camera.main;
-            if (cam == null) return;
-            
-            // Переключаем на перспективную камеру (проект создан как 2D)
             cam.orthographic = false;
             cam.fieldOfView = 60f;
             cam.nearClipPlane = 0.1f;
             cam.farClipPlane = 500f;
-            
-            // Позиция: сверху-сбоку, смотрим на центр чанка
-            cam.transform.position = new Vector3(28, 16, -12);
-            cam.transform.LookAt(new Vector3(8, 2, 8));
+            cam.transform.position = new Vector3(0, 20, 0);
+            cam.transform.rotation = Quaternion.Euler(30, 0, 0);
+
+            // Добавляем контроллер полёта на камеру
+            if (cam.GetComponent<CubeWorld.Player.FlyCameraController>() == null)
+                cam.gameObject.AddComponent<CubeWorld.Player.FlyCameraController>();
+
+            // Создаём ChunkManager
+            ChunkManager manager = gameObject.AddComponent<ChunkManager>();
+            manager.renderDistance = renderDistance;
+            manager.chunkMaterial = mat;
+            manager.playerTransform = cam.transform;
+
+            Debug.Log($"[ChunkTest] World started! Render distance: {renderDistance} chunks");
         }
 
-        private void CreateTestChunk()
+        private void Update()
         {
-            // Сначала строим простой меш для сравнения
-            byte[,,] testBlocks = new byte[Chunk.SIZE, Chunk.SIZE, Chunk.SIZE];
-            for (int x = 0; x < Chunk.SIZE; x++)
-            for (int y = 0; y < Chunk.SIZE; y++)
-            for (int z = 0; z < Chunk.SIZE; z++)
+            // Показываем статистику
+            ChunkManager manager = GetComponent<ChunkManager>();
+            if (manager != null && Time.frameCount % 60 == 0)
             {
-                if (y == 0) testBlocks[x, y, z] = (byte)BlockType.Stone;
-                else if (y < 4) testBlocks[x, y, z] = (byte)BlockType.Dirt;
-                else if (y == 4) testBlocks[x, y, z] = (byte)BlockType.Grass;
-                else testBlocks[x, y, z] = (byte)BlockType.Air;
+                Debug.Log($"[World] Active chunks: {manager.ActiveChunkCount}, " +
+                          $"Camera: {Camera.main.transform.position}");
             }
-
-            // Простой меш (до)
-            Mesh simpleMesh = ChunkMeshBuilderSimple.BuildMesh(testBlocks, Chunk.SIZE);
-            int simpleVerts = simpleMesh.vertexCount;
-            int simpleTris = simpleMesh.triangles.Length / 3;
-
-            // Создаём чанк с Greedy Meshing
-            GameObject chunkObj = new GameObject("TestChunk");
-            chunkObj.AddComponent<MeshFilter>();
-            chunkObj.AddComponent<MeshRenderer>();
-            chunkObj.AddComponent<MeshCollider>();
-
-            _chunk = chunkObj.AddComponent<Chunk>();
-            _chunk.GenerateTestData();
-            _chunk.SetMaterial(chunkMaterial);
-            _chunk.BuildMesh();
-
-            // Статистика — сравнение
-            Mesh greedyMesh = chunkObj.GetComponent<MeshFilter>().sharedMesh;
-            int greedyVerts = greedyMesh.vertexCount;
-            int greedyTris = greedyMesh.triangles.Length / 3;
-
-            float vertReduction = (1f - (float)greedyVerts / simpleVerts) * 100f;
-            float triReduction = (1f - (float)greedyTris / simpleTris) * 100f;
-
-            Debug.Log($"[ChunkTest] === Greedy Meshing Comparison ===");
-            Debug.Log($"[ChunkTest] Simple:  Vertices: {simpleVerts}, Triangles: {simpleTris}");
-            Debug.Log($"[ChunkTest] Greedy:  Vertices: {greedyVerts}, Triangles: {greedyTris}");
-            Debug.Log($"[ChunkTest] Reduction: Verts -{vertReduction:F1}%, Tris -{triReduction:F1}%");
         }
 
         /// <summary>
-        /// Создаёт процедурный текстурный атлас 4×4 (64×64 px).
-        /// Каждый тайл — 16×16 px с уникальным цветом для каждого типа блока.
+        /// Создаёт процедурный текстурный атлас 4×4.
         /// </summary>
         private Material CreateProceduralAtlasMaterial()
         {
@@ -101,45 +59,39 @@ namespace CubeWorld.World
             int textureSize = atlasSize * tilePixels;
 
             Texture2D texture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
-            texture.filterMode = FilterMode.Point; // Пиксельный стиль, без размытия
+            texture.filterMode = FilterMode.Point;
             texture.wrapMode = TextureWrapMode.Clamp;
 
-            // Заливаем всё прозрачным
             Color[] pixels = new Color[textureSize * textureSize];
             for (int i = 0; i < pixels.Length; i++)
                 pixels[i] = new Color(0.5f, 0.5f, 0.5f, 1f);
 
-            // Рисуем тайлы для каждого типа блока
-            // Row 3 (top): Grass-top, Dirt, Stone, Sand
-            FillTile(pixels, textureSize, tilePixels, 0, 3, new Color(0.36f, 0.70f, 0.22f)); // Grass top
-            FillTile(pixels, textureSize, tilePixels, 1, 3, new Color(0.55f, 0.37f, 0.18f)); // Dirt
-            FillTile(pixels, textureSize, tilePixels, 2, 3, new Color(0.50f, 0.50f, 0.50f)); // Stone
-            FillTile(pixels, textureSize, tilePixels, 3, 3, new Color(0.90f, 0.85f, 0.55f)); // Sand
+            // Row 3: Grass-top, Dirt, Stone, Sand
+            FillTile(pixels, textureSize, tilePixels, 0, 3, new Color(0.36f, 0.70f, 0.22f));
+            FillTile(pixels, textureSize, tilePixels, 1, 3, new Color(0.55f, 0.37f, 0.18f));
+            FillTile(pixels, textureSize, tilePixels, 2, 3, new Color(0.50f, 0.50f, 0.50f));
+            FillTile(pixels, textureSize, tilePixels, 3, 3, new Color(0.90f, 0.85f, 0.55f));
 
             // Row 2: Grass-side, Leaves, Wood-side, Wood-top
-            FillTile(pixels, textureSize, tilePixels, 0, 2, new Color(0.36f, 0.70f, 0.22f), // Grass side
-                     new Color(0.55f, 0.37f, 0.18f)); // bottom half = dirt
-            FillTile(pixels, textureSize, tilePixels, 1, 2, new Color(0.18f, 0.55f, 0.15f)); // Leaves
-            FillTile(pixels, textureSize, tilePixels, 2, 2, new Color(0.45f, 0.30f, 0.12f)); // Wood side
-            FillTile(pixels, textureSize, tilePixels, 3, 2, new Color(0.55f, 0.40f, 0.20f)); // Wood top
+            FillTile(pixels, textureSize, tilePixels, 0, 2, new Color(0.36f, 0.70f, 0.22f),
+                     new Color(0.55f, 0.37f, 0.18f));
+            FillTile(pixels, textureSize, tilePixels, 1, 2, new Color(0.18f, 0.55f, 0.15f));
+            FillTile(pixels, textureSize, tilePixels, 2, 2, new Color(0.45f, 0.30f, 0.12f));
+            FillTile(pixels, textureSize, tilePixels, 3, 2, new Color(0.55f, 0.40f, 0.20f));
 
             // Row 1: Snow, Water
-            FillTile(pixels, textureSize, tilePixels, 0, 1, new Color(0.95f, 0.97f, 1.00f)); // Snow
-            FillTile(pixels, textureSize, tilePixels, 1, 1, new Color(0.20f, 0.50f, 0.85f)); // Water
+            FillTile(pixels, textureSize, tilePixels, 0, 1, new Color(0.95f, 0.97f, 1.00f));
+            FillTile(pixels, textureSize, tilePixels, 1, 1, new Color(0.20f, 0.50f, 0.85f));
 
             texture.SetPixels(pixels);
             texture.Apply();
 
-            // Используем URP Lit шейдер
             Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
             mat.mainTexture = texture;
-            mat.SetFloat("_Smoothness", 0f); // Без блеска
+            mat.SetFloat("_Smoothness", 0f);
             return mat;
         }
 
-        /// <summary>
-        /// Заливает один тайл в атласе цветом. Опционально — нижняя половина другим цветом.
-        /// </summary>
         private void FillTile(Color[] pixels, int texSize, int tileSize,
                               int tileX, int tileY, Color color, Color? bottomColor = null)
         {
@@ -154,14 +106,11 @@ namespace CubeWorld.World
                 if (bottomColor.HasValue && y < halfY)
                     c = bottomColor.Value;
 
-                // Добавляем лёгкий шум для естественности
                 float noise = Random.Range(-0.03f, 0.03f);
                 c = new Color(
                     Mathf.Clamp01(c.r + noise),
                     Mathf.Clamp01(c.g + noise),
-                    Mathf.Clamp01(c.b + noise),
-                    1f
-                );
+                    Mathf.Clamp01(c.b + noise), 1f);
 
                 pixels[(startY + y) * texSize + (startX + x)] = c;
             }
