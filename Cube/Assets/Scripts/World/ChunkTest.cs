@@ -9,7 +9,8 @@ namespace CubeWorld.World
     public class ChunkTest : MonoBehaviour
     {
         [Header("Settings")]
-        public int renderDistance = 8;
+        public int renderDistance = 5;
+        public int worldSeed = 42;
 
         private void Start()
         {
@@ -21,9 +22,9 @@ namespace CubeWorld.World
             cam.orthographic = false;
             cam.fieldOfView = 60f;
             cam.nearClipPlane = 0.1f;
-            cam.farClipPlane = 500f;
-            cam.transform.position = new Vector3(0, 20, 0);
-            cam.transform.rotation = Quaternion.Euler(30, 0, 0);
+            cam.farClipPlane = 1000f;
+            cam.transform.position = new Vector3(0, 120, 0);
+            cam.transform.rotation = Quaternion.Euler(45, 0, 0);
 
             // Добавляем контроллер полёта на камеру
             if (cam.GetComponent<CubeWorld.Player.FlyCameraController>() == null)
@@ -34,6 +35,8 @@ namespace CubeWorld.World
             manager.renderDistance = renderDistance;
             manager.chunkMaterial = mat;
             manager.playerTransform = cam.transform;
+            manager.worldSeed = worldSeed;
+            manager.verticalChunks = 8; // 8 × 16 = 128 блоков высоты
 
             Debug.Log($"[ChunkTest] World started! Render distance: {renderDistance} chunks");
         }
