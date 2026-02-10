@@ -4,10 +4,10 @@ using UnityEngine;
 namespace CubeWorld.World
 {
     /// <summary>
-    /// Генератор меша для воксельного чанка.
-    /// Создаёт полигоны только для видимых граней (face culling).
+    /// Генератор меша для воксельного чанка (простой — 1 квад на грань).
+    /// Используется как fallback и для сравнения с Greedy Meshing.
     /// </summary>
-    public static class ChunkMeshBuilder
+    public static class ChunkMeshBuilderSimple
     {
         // 6 направлений проверки соседей: Right, Left, Up, Down, Front, Back
         private static readonly Vector3Int[] FaceDirections =

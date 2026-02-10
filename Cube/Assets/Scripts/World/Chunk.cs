@@ -4,14 +4,16 @@ namespace CubeWorld.World
 {
     /// <summary>
     /// Компонент чанка. Хранит данные блоков и управляет мешем.
-    /// Прикрепляется к GameObject в сцене.
     /// </summary>
     [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider))]
     public class Chunk : MonoBehaviour
     {
         public const int SIZE = 16;
 
-        // 3D-массив блоков. Каждый byte = BlockType.
+        /// <summary>Координаты чанка в сетке чанков (не мировые).</summary>
+        public Vector3Int ChunkPos { get; private set; }
+
+        /// <summary>3D-массив блоков. Каждый byte = BlockType.</summary>
         public byte[,,] Blocks { get; private set; }
 
         private MeshFilter _meshFilter;
@@ -23,66 +25,40 @@ namespace CubeWorld.World
             _meshFilter = GetComponent<MeshFilter>();
             _meshRenderer = GetComponent<MeshRenderer>();
             _meshCollider = GetComponent<MeshCollider>();
-            Blocks = new byte[SIZE, SIZE, SIZE];
         }
 
-        /// <summary>
-        /// Заполняет чанк тестовыми данными — несколько слоёв блоков.
-        /// </summary>
+        /// <summary>Инициализирует чанк с координатами.</summary>
+        public void Init(Vector3Int chunkPos)
+        {
+            ChunkPos = chunkPos;
+            Blocks = new byte[SIZE, SIZE, SIZE];
+            transform.position = new Vector3(
+                chunkPos.x * SIZE,
+                chunkPos.y * SIZE,
+                chunkPos.z * SIZE
+            );
+            gameObject.name = $"Chunk_{chunkPos.x}_{chunkPos.y}_{chunkPos.z}";
+        }
+
+        /// <summary>Генерирует плоский тестовый ландшафт.</summary>
         public void GenerateTestData()
         {
+            if (Blocks == null) Blocks = new byte[SIZE, SIZE, SIZE];
+
+            // Плоский ландшафт на высоте Y=0 чанка (мировой Y зависит от ChunkPos.y)
+            int worldYBase = ChunkPos.y * SIZE;
             for (int x = 0; x < SIZE; x++)
             for (int y = 0; y < SIZE; y++)
             for (int z = 0; z < SIZE; z++)
             {
-                if (y == 0)
+                int worldY = worldYBase + y;
+                if (worldY < 2)
                     Blocks[x, y, z] = (byte)BlockType.Stone;
-                else if (y < 4)
+                else if (worldY < 5)
                     Blocks[x, y, z] = (byte)BlockType.Dirt;
-                else if (y == 4)
+                else if (worldY == 5)
                     Blocks[x, y, z] = (byte)BlockType.Grass;
                 else
                     Blocks[x, y, z] = (byte)BlockType.Air;
             }
         }
-
-        /// <summary>
-        /// Перестраивает меш на основе текущего массива блоков.
-        /// Вызывай после любого изменения блоков.
-        /// </summary>
-        public void BuildMesh()
-        {
-            Mesh mesh = ChunkMeshBuilder.BuildMesh(Blocks, SIZE);
-            _meshFilter.mesh = mesh;
-            _meshCollider.sharedMesh = mesh;
-        }
-
-        /// <summary>
-        /// Устанавливает блок в позиции (x, y, z).
-        /// </summary>
-        public void SetBlock(int x, int y, int z, BlockType type)
-        {
-            if (x < 0 || x >= SIZE || y < 0 || y >= SIZE || z < 0 || z >= SIZE)
-                return;
-            Blocks[x, y, z] = (byte)type;
-        }
-
-        /// <summary>
-        /// Возвращает тип блока в позиции (x, y, z).
-        /// </summary>
-        public BlockType GetBlock(int x, int y, int z)
-        {
-            if (x < 0 || x >= SIZE || y < 0 || y >= SIZE || z < 0 || z >= SIZE)
-                return BlockType.Air;
-            return (BlockType)Blocks[x, y, z];
-        }
-
-        /// <summary>
-        /// Устанавливает материал для рендера чанка.
-        /// </summary>
-        public void SetMaterial(Material material)
-        {
-            _meshRenderer.material = material;
-        }
-    }
-}

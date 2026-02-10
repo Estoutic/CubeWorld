@@ -48,6 +48,24 @@ namespace CubeWorld.World
 
         private void CreateTestChunk()
         {
+            // Сначала строим простой меш для сравнения
+            byte[,,] testBlocks = new byte[Chunk.SIZE, Chunk.SIZE, Chunk.SIZE];
+            for (int x = 0; x < Chunk.SIZE; x++)
+            for (int y = 0; y < Chunk.SIZE; y++)
+            for (int z = 0; z < Chunk.SIZE; z++)
+            {
+                if (y == 0) testBlocks[x, y, z] = (byte)BlockType.Stone;
+                else if (y < 4) testBlocks[x, y, z] = (byte)BlockType.Dirt;
+                else if (y == 4) testBlocks[x, y, z] = (byte)BlockType.Grass;
+                else testBlocks[x, y, z] = (byte)BlockType.Air;
+            }
+
+            // Простой меш (до)
+            Mesh simpleMesh = ChunkMeshBuilderSimple.BuildMesh(testBlocks, Chunk.SIZE);
+            int simpleVerts = simpleMesh.vertexCount;
+            int simpleTris = simpleMesh.triangles.Length / 3;
+
+            // Создаём чанк с Greedy Meshing
             GameObject chunkObj = new GameObject("TestChunk");
             chunkObj.AddComponent<MeshFilter>();
             chunkObj.AddComponent<MeshRenderer>();
@@ -58,11 +76,18 @@ namespace CubeWorld.World
             _chunk.SetMaterial(chunkMaterial);
             _chunk.BuildMesh();
 
-            // Статистика
-            Mesh mesh = chunkObj.GetComponent<MeshFilter>().sharedMesh;
-            Debug.Log($"[ChunkTest] Chunk created! " +
-                      $"Vertices: {mesh.vertexCount}, " +
-                      $"Triangles: {mesh.triangles.Length / 3}");
+            // Статистика — сравнение
+            Mesh greedyMesh = chunkObj.GetComponent<MeshFilter>().sharedMesh;
+            int greedyVerts = greedyMesh.vertexCount;
+            int greedyTris = greedyMesh.triangles.Length / 3;
+
+            float vertReduction = (1f - (float)greedyVerts / simpleVerts) * 100f;
+            float triReduction = (1f - (float)greedyTris / simpleTris) * 100f;
+
+            Debug.Log($"[ChunkTest] === Greedy Meshing Comparison ===");
+            Debug.Log($"[ChunkTest] Simple:  Vertices: {simpleVerts}, Triangles: {simpleTris}");
+            Debug.Log($"[ChunkTest] Greedy:  Vertices: {greedyVerts}, Triangles: {greedyTris}");
+            Debug.Log($"[ChunkTest] Reduction: Verts -{vertReduction:F1}%, Tris -{triReduction:F1}%");
         }
 
         /// <summary>
