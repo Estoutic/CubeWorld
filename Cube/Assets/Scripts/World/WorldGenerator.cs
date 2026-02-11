@@ -22,9 +22,14 @@ namespace CubeWorld.World
         private const float HeightLacunarity = 2.2f;  // Увеличение частоты
 
         // Пещеры (3D шум)
-        private const float CaveScale = 0.035f;
-        private const float CaveThreshold = 0.58f;    // Чем выше — тем меньше пещер
-        private const int CaveMinY = 3;               // Пещеры не ниже этой высоты
+        private const float CaveScale = 0.03f;
+        private const float CaveThreshold = 0.52f;    // Понижен — больше пещер
+        private const int CaveMinY = 3;
+
+        // Входы в пещеры
+        private const float CaveEntranceScale = 0.02f;
+        private const float CaveEntranceThreshold = 0.6f;  // Понижен — больше входов на склонах
+        private const float SlopeThreshold = 2f;           // Понижен — даже на пологих склонах
 
         // Seed мира
         private static int _seed = 42;
@@ -56,21 +61,38 @@ namespace CubeWorld.World
             int chunkWorldY = chunkPos.y * Chunk.SIZE;
             int chunkWorldZ = chunkPos.z * Chunk.SIZE;
 
+            // Кэшируем высоты для всего чанка + соседние столбцы (для расчёта наклона)
+            int[,] heightMap = new int[Chunk.SIZE + 2, Chunk.SIZE + 2];
+            for (int x = -1; x <= Chunk.SIZE; x++)
+            for (int z = -1; z <= Chunk.SIZE; z++)
+            {
+                int worldX = chunkWorldX + x;
+                int worldZ = chunkWorldZ + z;
+                float heightNoise = OctavePerlin(
+                    (worldX + _seedX) * HeightScale,
+                    (worldZ + _seedZ) * HeightScale,
+                    HeightOctaves, HeightPersistence, HeightLacunarity);
+                heightMap[x + 1, z + 1] = Mathf.RoundToInt(
+                    Mathf.Lerp(MinHeight, MaxHeight, heightNoise));
+            }
+
             for (int x = 0; x < Chunk.SIZE; x++)
             for (int z = 0; z < Chunk.SIZE; z++)
             {
                 int worldX = chunkWorldX + x;
                 int worldZ = chunkWorldZ + z;
+                int surfaceHeight = heightMap[x + 1, z + 1];
 
-                // Высота ландшафта через многооктавный шум
-                float heightNoise = OctavePerlin(
-                    (worldX + _seedX) * HeightScale,
-                    (worldZ + _seedZ) * HeightScale,
-                    HeightOctaves, HeightPersistence, HeightLacunarity);
-
-                // Преобразуем шум [0..1] в высоту [MinHeight..MaxHeight]
-                int surfaceHeight = Mathf.RoundToInt(
-                    Mathf.Lerp(MinHeight, MaxHeight, heightNoise));
+                // Рассчитываем крутизну склона (разница высот с соседями)
+                int hN = heightMap[x + 1, z + 2];
+                int hS = heightMap[x + 1, z];
+                int hE = heightMap[x + 2, z + 1];
+                int hW = heightMap[x, z + 1];
+                float slope = Mathf.Max(
+                    Mathf.Abs(surfaceHeight - hN),
+                    Mathf.Abs(surfaceHeight - hS),
+                    Mathf.Abs(surfaceHeight - hE),
+                    Mathf.Abs(surfaceHeight - hW));
 
                 for (int y = 0; y < Chunk.SIZE; y++)
                 {
@@ -78,13 +100,13 @@ namespace CubeWorld.World
 
                     if (worldY > surfaceHeight)
                     {
-                        // Над поверхностью — воздух
                         blocks[x, y, z] = (byte)BlockType.Air;
                         continue;
                     }
 
                     // Проверяем пещеры через 3D шум
-                    if (worldY > CaveMinY && worldY < surfaceHeight - 1)
+                    bool isCave = false;
+                    if (worldY > CaveMinY)
                     {
                         float cave = OctavePerlin3D(
                             (worldX + _seedCave) * CaveScale,
@@ -92,34 +114,85 @@ namespace CubeWorld.World
                             (worldZ + _seedCave) * CaveScale,
                             2, 0.5f, 2f);
 
+                        int depth = surfaceHeight - worldY;
+
                         if (cave > CaveThreshold)
                         {
-                            blocks[x, y, z] = (byte)BlockType.Air;
-                            continue;
+                            // Обычная пещера — всегда вырезаем под поверхностью
+                            if (depth >= 2)
+                            {
+                                isCave = true;
+                            }
+                            // Вход в пещеру на склоне
+                            else if (depth >= 0 && slope >= SlopeThreshold)
+                            {
+                                float entranceNoise = OctavePerlin(
+                                    (worldX + _seedCave + 500) * CaveEntranceScale,
+                                    (worldZ + _seedCave + 500) * CaveEntranceScale,
+                                    2, 0.5f, 2f);
+                                if (entranceNoise > CaveEntranceThreshold)
+                                {
+                                    isCave = true;
+                                }
+                            }
+                        }
+
+                        // Вертикальные провалы (sinkholes) — дыры в земле ведущие в пещеры
+                        if (!isCave && depth >= 0 && depth <= 4 && cave > CaveThreshold - 0.08f)
+                        {
+                            float sinkhole = OctavePerlin(
+                                (worldX + _seedCave + 1000) * 0.012f,
+                                (worldZ + _seedCave + 1000) * 0.012f,
+                                2, 0.5f, 2f);
+                            if (sinkhole > 0.7f)
+                            {
+                                isCave = true;
+                            }
+                        }
+
+                        // Горизонтальные тоннели на уровне чуть ниже поверхности
+                        // Создают заметные входы в склонах холмов
+                        if (!isCave && worldY > CaveMinY + 5)
+                        {
+                            // Тоннель на фиксированных высотах (каждые ~20 блоков)
+                            int tunnelBand = worldY % 20;
+                            if (tunnelBand >= 0 && tunnelBand <= 2 && depth <= 6 && depth >= -1)
+                            {
+                                float tunnel = OctavePerlin(
+                                    (worldX + _seedCave + 2000) * 0.025f,
+                                    (worldZ + _seedCave + 2000) * 0.025f,
+                                    2, 0.5f, 2f);
+                                if (tunnel > 0.65f)
+                                {
+                                    isCave = true;
+                                }
+                            }
                         }
                     }
 
+                    if (isCave)
+                    {
+                        blocks[x, y, z] = (byte)BlockType.Air;
+                        continue;
+                    }
+
                     // Определяем тип блока по глубине от поверхности
-                    int depth = surfaceHeight - worldY;
+                    int blockDepth = surfaceHeight - worldY;
 
                     if (worldY <= 1)
                     {
-                        // Bedrock (нижний слой) — камень
                         blocks[x, y, z] = (byte)BlockType.Stone;
                     }
-                    else if (depth == 0)
+                    else if (blockDepth == 0)
                     {
-                        // Поверхность
                         blocks[x, y, z] = (byte)BlockType.Grass;
                     }
-                    else if (depth < 4)
+                    else if (blockDepth < 4)
                     {
-                        // Подповерхность — земля
                         blocks[x, y, z] = (byte)BlockType.Dirt;
                     }
                     else
                     {
-                        // Глубже — камень
                         blocks[x, y, z] = (byte)BlockType.Stone;
                     }
                 }

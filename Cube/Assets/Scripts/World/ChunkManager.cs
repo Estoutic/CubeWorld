@@ -145,6 +145,21 @@ namespace CubeWorld.World
             chunk.BuildMesh((x, y, z) => GetBlockWorld(data.chunkPos, x, y, z));
             chunk.gameObject.SetActive(true);
             _chunks[data.chunkPos] = chunk;
+
+            // Диагностика первых нескольких чанков
+            if (_chunks.Count <= 3)
+            {
+                var mf = chunk.GetComponent<MeshFilter>();
+                int verts = mf.mesh != null ? mf.mesh.vertexCount : 0;
+                int nonAir = 0;
+                for (int x = 0; x < Chunk.SIZE; x++)
+                for (int y = 0; y < Chunk.SIZE; y++)
+                for (int z = 0; z < Chunk.SIZE; z++)
+                    if (data.blocks[x,y,z] != 0) nonAir++;
+                Debug.Log($"[DIAG] Chunk {data.chunkPos}: verts={verts}, " +
+                          $"nonAir={nonAir}, pos={chunk.transform.position}, " +
+                          $"mat={chunk.GetComponent<MeshRenderer>().material?.shader?.name}");
+            }
         }
 
         private BlockType GetBlockWorld(Vector3Int chunkPos, int localX, int localY, int localZ)

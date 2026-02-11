@@ -1,39 +1,42 @@
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace CubeWorld.World
 {
     /// <summary>
-    /// Greedy Meshing — объединяет соседние одинаковые грани в большие полигоны.
-    /// Поддерживает доступ к соседним чанкам для бесшовных стыков.
+    /// Greedy Meshing в стиле Cube World.
+    /// Использует vertex colors вместо текстурного атласа.
+    /// Каждый блок — один сплошной цвет с directional shading и AO.
     /// </summary>
     public static class ChunkMeshBuilder
     {
-        /// <summary>
-        /// Делегат для получения блока по мировым координатам.
-        /// Используется для доступа к соседним чанкам на границах.
-        /// </summary>
         public delegate BlockType BlockGetter(int x, int y, int z);
 
-        /// <summary>
-        /// Простая версия — без соседей (для одиночного чанка).
-        /// </summary>
         public static Mesh BuildMesh(byte[,,] blocks, int size)
         {
-            return BuildMesh(blocks, size, null);
+            return BuildMesh(blocks, size, null, Vector3Int.zero);
+        }
+
+        public static Mesh BuildMesh(byte[,,] blocks, int size,
+            BlockGetter neighborGetter)
+        {
+            return BuildMesh(blocks, size, neighborGetter, Vector3Int.zero);
         }
 
         /// <summary>
-        /// Полная версия — с доступом к соседним блокам через neighborGetter.
-        /// neighborGetter принимает локальные координаты (могут быть за пределами 0..size-1).
+        /// Генерирует меш с vertex colors и ambient occlusion.
         /// </summary>
-        public static Mesh BuildMesh(byte[,,] blocks, int size, BlockGetter neighborGetter)
+        public static Mesh BuildMesh(byte[,,] blocks, int size,
+            BlockGetter neighborGetter, Vector3Int chunkPos)
         {
             var vertices = new List<Vector3>();
             var triangles = new List<int>();
-            var uvs = new List<Vector2>();
+            var colors = new List<Color>();
             var normals = new List<Vector3>();
+
+            int chunkWorldX = chunkPos.x * size;
+            int chunkWorldY = chunkPos.y * size;
+            int chunkWorldZ = chunkPos.z * size;
 
             for (int axis = 0; axis < 3; axis++)
             {
@@ -52,10 +55,12 @@ namespace CubeWorld.World
                         pos[axis] = slice;
                         pos[axis1] = u;
                         pos[axis2] = v;
-                        BlockType blockA = GetBlockSafe(blocks, size, pos[0], pos[1], pos[2], neighborGetter);
+                        BlockType blockA = GetBlockSafe(blocks, size,
+                            pos[0], pos[1], pos[2], neighborGetter);
 
                         pos[axis] = slice + 1;
-                        BlockType blockB = GetBlockSafe(blocks, size, pos[0], pos[1], pos[2], neighborGetter);
+                        BlockType blockB = GetBlockSafe(blocks, size,
+                            pos[0], pos[1], pos[2], neighborGetter);
 
                         bool solidA = BlockData.IsSolid(blockA);
                         bool solidB = BlockData.IsSolid(blockB);
@@ -78,10 +83,12 @@ namespace CubeWorld.World
                         int blockId = mask[maskIdx];
                         if (blockId == 0) { maskIdx++; continue; }
 
+                        // Расширяем по u
                         int width = 1;
                         while (u + width < size && mask[maskIdx + width] == blockId)
                             width++;
 
+                        // Расширяем по v
                         int height = 1;
                         bool canExpand = true;
                         while (v + height < size && canExpand)
@@ -98,6 +105,7 @@ namespace CubeWorld.World
                         BlockType type = (BlockType)(backFace ? -blockId : blockId);
                         int faceIndex = GetFaceIndex(axis, backFace);
 
+                        // Позиция квада
                         float[] origin = new float[3];
                         origin[axis] = slice + 1;
                         origin[axis1] = u;
@@ -112,10 +120,19 @@ namespace CubeWorld.World
                         Vector3 vU = new Vector3(du[0], du[1], du[2]);
                         Vector3 vV = new Vector3(dv[0], dv[1], dv[2]);
 
+                        // Нормаль
                         float[] nArr = new float[3];
                         nArr[axis] = backFace ? -1 : 1;
                         Vector3 normal = new Vector3(nArr[0], nArr[1], nArr[2]);
 
+                        // Vertex color — центр грани для расчёта цвета
+                        int centerX = chunkWorldX + (int)(origin[0] + du[0] * 0.5f);
+                        int centerY = chunkWorldY + (int)(origin[1] + du[1] * 0.5f);
+                        int centerZ = chunkWorldZ + (int)(origin[2] + dv[2] * 0.5f);
+                        Color faceColor = BlockColors.GetFaceColor(
+                            type, faceIndex, centerX, centerY, centerZ);
+
+                        // 4 вершины квада
                         int vertStart = vertices.Count;
                         if (backFace)
                         {
@@ -133,15 +150,12 @@ namespace CubeWorld.World
                         }
 
                         for (int i = 0; i < 4; i++)
+                        {
                             normals.Add(normal);
+                            colors.Add(faceColor);
+                        }
 
-                        Vector2 tileOffset = BlockData.GetTileOffset(type, faceIndex);
-                        float t = BlockData.TileSize;
-                        uvs.Add(tileOffset + new Vector2(0, 0));
-                        uvs.Add(tileOffset + new Vector2(t, 0));
-                        uvs.Add(tileOffset + new Vector2(t, t));
-                        uvs.Add(tileOffset + new Vector2(0, t));
-
+                        // Треугольники
                         triangles.Add(vertStart + 0);
                         triangles.Add(vertStart + 1);
                         triangles.Add(vertStart + 2);
@@ -149,6 +163,7 @@ namespace CubeWorld.World
                         triangles.Add(vertStart + 2);
                         triangles.Add(vertStart + 3);
 
+                        // Очищаем маску
                         for (int dv2 = 0; dv2 < height; dv2++)
                         for (int du2 = 0; du2 < width; du2++)
                             mask[(v + dv2) * size + (u + du2)] = 0;
@@ -164,24 +179,18 @@ namespace CubeWorld.World
                 : UnityEngine.Rendering.IndexFormat.UInt16;
             mesh.SetVertices(vertices);
             mesh.SetTriangles(triangles, 0);
-            mesh.SetUVs(0, uvs);
+            mesh.SetColors(colors);
             mesh.SetNormals(normals);
             return mesh;
         }
 
-        /// <summary>
-        /// Получает блок с поддержкой соседних чанков.
-        /// Если координаты за пределами чанка и есть neighborGetter — спрашивает у него.
-        /// </summary>
         private static BlockType GetBlockSafe(byte[,,] blocks, int size,
             int x, int y, int z, BlockGetter neighborGetter)
         {
             if (x >= 0 && x < size && y >= 0 && y < size && z >= 0 && z < size)
                 return (BlockType)blocks[x, y, z];
-
             if (neighborGetter != null)
                 return neighborGetter(x, y, z);
-
             return BlockType.Air;
         }
 

@@ -68,7 +68,7 @@ namespace CubeWorld.World
         /// </summary>
         public void BuildMesh(ChunkMeshBuilder.BlockGetter neighborGetter = null)
         {
-            Mesh mesh = ChunkMeshBuilder.BuildMesh(Blocks, SIZE, neighborGetter);
+            Mesh mesh = ChunkMeshBuilder.BuildMesh(Blocks, SIZE, neighborGetter, ChunkPos);
             _meshFilter.mesh = mesh;
             _meshCollider.sharedMesh = mesh;
         }
